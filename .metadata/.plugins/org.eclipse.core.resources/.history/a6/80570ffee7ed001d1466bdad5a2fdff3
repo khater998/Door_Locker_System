@@ -1,0 +1,145 @@
+/******************************************************************************
+ *
+ * Module: APP
+ *
+ * File Name: app.c
+ *
+ * Description: Source file for the application
+ *
+ * Author: Mohamed Ibrahim
+ *
+ *******************************************************************************/
+#include "app.h"
+#include <avr/io.h>
+#include <avr/delay.h>
+#include "../MCAL/UART/uart.h"
+#include "../MCAL/TWI/twi.h"
+#include "../HAL/BUZZER/buzzer.h"
+#include "../HAL/DC_MOTOR/dc_motor.h"
+#include "../HAL/EEPROM/external_eeprom.h"
+
+/*
+ * Description :
+ * 		The function is to check if the passed two passwords are identical
+ */
+uint8 isPassMatched(uint8 * pass1, uint8 * pass2, uint8 size);
+
+uint8 operation_id;
+uint8 received_pass[10] = "";
+uint8 stored_pass[10] = "";
+uint8 pass_size = 0;
+
+/*******************************************************************************
+ *                      Functions Definitions                                  *
+ *******************************************************************************/
+
+/*
+ * Description :
+ * This function is responsible for initializing the peripherals used
+ */
+void APP_init(void)
+{
+
+	UART_Config_t config = {UART_8_DATA_BITS, UART_PARITY_DISABLED,
+							UART_1_STOP_BIT, 9600};
+
+	/* Enable Global Interrupt */
+	SREG |= (1<<7);
+	TWI_init();
+	DcMotor_Init();
+	UART_init(&config);
+}
+
+/*
+ * Description : This Function gets ultrasonic reading and prints it on LCD
+ */
+void APP_start(void)
+{
+	uint8  i = 0, isMatched;
+
+	operation_id = UART_recieveByte();
+
+	switch(operation_id)
+	{
+	case '0':	/* Setting a new password operation */
+
+		/* reset pass_size , i */
+		pass_size = 0;
+		i = 0;
+
+		/* store the user entered password */
+		UART_receiveString(received_pass);
+
+		/* store password in eeprom */
+		while(received_pass[i])
+		{
+			EEPROM_writeByte(0x0311 + i, received_pass[i]);
+			_delay_ms(10);
+			pass_size++;
+			i++;
+		}
+		break;
+
+	case '1':	/* Check if user entered password is correct */
+
+		/* store the user entered password */
+		UART_receiveString(received_pass);
+		/* compare received data with the saved password */
+		for(i = 0; i < pass_size; i++)
+		{
+			EEPROM_readByte(0X0311 + i, &stored_pass[i]);
+			_delay_ms(10);
+		}
+
+		/* check if the user entered password && stored password are identical */
+		isMatched = isPassMatched(received_pass, stored_pass, pass_size);
+		if(isMatched)
+		{
+			/* if matched, send '1' */
+			UART_sendByte('1');
+		}
+		else
+		{
+			/* if not matched, send '0' */
+			UART_sendByte('0');
+		}
+		break;
+
+
+	case'2':	/* open gate operation */
+		/* open gate */
+		DcMotor_Rotate(CW);
+		_delay_ms(15000);
+		DcMotor_Rotate(STOP);
+		_delay_ms(3000);
+		DcMotor_Rotate(A_CW);
+		_delay_ms(15000);
+		DcMotor_Rotate(STOP);
+		break;
+	}
+
+
+}
+
+/*
+ * Description :
+ * 		The function is to check if the passed two passwords are identical
+ */
+uint8 isPassMatched(uint8 * pass1, uint8 * pass2, uint8 size)
+{
+	uint8 i = 0, matched = 1;
+	for(; i < size; ++i)
+	{
+		if(pass1[i] == pass2[i])
+		{
+			continue;
+		}
+		else
+		{
+			matched = 0;
+			break;
+		}
+	}
+
+	return matched;
+}
